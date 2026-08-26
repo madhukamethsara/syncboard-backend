@@ -1,11 +1,15 @@
 const argon2 = require("argon2");
 const User = require("../models/User");
 const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
 const { registerSchema , loginSchema } = require("../validators/authValidator");
+const generateVerificationToken = require("../utils/verificationToken")
+const { sendVerificationEmail } = require("../services/emailservice");
 
+//register
 const register = async (req, res) => {
   try {
-    //Validate incoming data
+    // Validate incoming data
     const result = registerSchema.safeParse(req.body);
 
     if (!result.success) {
@@ -18,7 +22,7 @@ const register = async (req, res) => {
 
     const { name, email, password } = result.data;
 
-    //Check whether user already exists
+    // Check whether user already exists
     const existingUser = await User.findOne({ email });
 
     if (existingUser) {
@@ -28,33 +32,92 @@ const register = async (req, res) => {
       });
     }
 
-    //Hash password
+    // Hash password
     const passwordHash = await argon2.hash(password, {
       type: argon2.argon2id,
     });
 
-    //Save user
+    // Generate email verification token
+    const { token, hashedToken } = generateVerificationToken();
+
+    // Save user
     const user = await User.create({
       name,
       email,
       passwordHash,
+      emailVerificationToken: hashedToken,
+      emailVerificationExpires: new Date(
+        Date.now() + 60 * 60 * 1000
+      ),
     });
 
-    //Return safe data
+    // Send verification email
+    await sendVerificationEmail(user.email, token);
+
     return res.status(201).json({
       success: true,
-      message: "User registered successfully",
+      message:
+        "User registered successfully. Please check your email to verify your account.",
       user: {
         id: user._id,
         name: user.name,
         email: user.email,
         role: user.role,
         avatar: user.avatar,
+        isEmailVerified: user.isEmailVerified,
         createdAt: user.createdAt,
       },
     });
   } catch (error) {
     console.error("Register error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+//verification mail
+const verifyEmail = async (req, res) => {
+  try {
+    // Get raw token from URL
+    const { token } = req.params;
+
+    // Hash the raw token
+    const hashedToken = crypto
+      .createHash("sha256")
+      .update(token)
+      .digest("hex");
+
+    // Find user with matching token that has not expired
+    const user = await User.findOne({
+      emailVerificationToken: hashedToken,
+      emailVerificationExpires: { $gt: new Date() },
+    });
+
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: "Verification link is invalid or has expired",
+      });
+    }
+
+    // Mark email as verified
+    user.isEmailVerified = true;
+
+    // Remove verification token
+    user.emailVerificationToken = undefined;
+    user.emailVerificationExpires = undefined;
+
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Email verified successfully",
+    });
+  } catch (error) {
+    console.error("Email verification error:", error);
 
     return res.status(500).json({
       success: false,
@@ -172,4 +235,5 @@ module.exports = {
   login,
   getMe,
   logout,
+  verifyEmail,
 };
