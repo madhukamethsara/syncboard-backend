@@ -7,7 +7,7 @@ dotenv.config();
 // Force Node.js to use reliable DNS servers
 dns.setServers([
   "8.8.8.8",
-  "8.8.4.4"
+  "8.8.4.4",
 ]);
 
 const express = require("express");
@@ -17,14 +17,16 @@ const cookieParser = require("cookie-parser");
 
 const connectDB = require("./src/config/db");
 const authRoutes = require("./src/routes/authRoutes");
-const userRoutes = require("./src/routes/userRouts");
+const userRoutes = require("./src/routes/userRoutes");
+const teamRoutes = require("./src/routes/teamRoutes");
+const invitationRoutes = require("./src/routes/invitationRoutes");
 
 const app = express();
 
 const PORT = process.env.PORT || 5000;
 
 
-// Middleware
+// MIDDLEWARE
 app.use(express.json());
 
 app.use(
@@ -35,15 +37,17 @@ app.use(
 );
 
 app.use(helmet());
+
 app.use(cookieParser());
 
 
-// Routes
+// ROUTES
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
+app.use("/api/teams", teamRoutes);
+app.use("/api/invitations", invitationRoutes);
 
-
-// Health Check
+// HEALTH CHECK
 app.get("/api/health", (req, res) => {
   res.status(200).json({
     success: true,
@@ -52,7 +56,7 @@ app.get("/api/health", (req, res) => {
 });
 
 
-// Connect DB & Start Server
+// CONNECT DB & START SERVER
 connectDB()
   .then(() => {
     app.listen(PORT, () => {

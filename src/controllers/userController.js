@@ -2,6 +2,7 @@ const User = require("../models/User");
 const argon2 = require("argon2");
 const { updateProfileSchema , changePasswordSchema } = require("../validators/userValidator");
 
+
 const getMyProfile = async (req, res) => {
   try {
     return res.status(200).json({
@@ -17,6 +18,7 @@ const getMyProfile = async (req, res) => {
     });
   }
 };
+
 
 const updateMyProfile = async (req, res) => {
 
@@ -86,6 +88,7 @@ const updateMyProfile = async (req, res) => {
   }
 };
 
+
 const changePassword = async (req, res) => {
   try {
     const result = changePasswordSchema.safeParse(req.body);
@@ -145,6 +148,7 @@ const changePassword = async (req, res) => {
     });
   }
 };
+
 
 module.exports = {
   getMyProfile,

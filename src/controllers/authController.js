@@ -6,6 +6,7 @@ const { registerSchema , loginSchema } = require("../validators/authValidator");
 const generateVerificationToken = require("../utils/verificationToken")
 const { sendVerificationEmail } = require("../services/emailservice");
 
+
 //register
 const register = async (req, res) => {
   try {
@@ -78,6 +79,7 @@ const register = async (req, res) => {
   }
 };
 
+
 //verification mail
 const verifyEmail = async (req, res) => {
   try {
@@ -125,6 +127,7 @@ const verifyEmail = async (req, res) => {
     });
   }
 };
+
 
 //login function
 const login = async (req, res) => {
@@ -216,6 +219,7 @@ const getMe = async (req, res) => {
   });
 };
 
+
 //logout function
 const logout = async (req, res) => {
   res.clearCookie("token", {
@@ -229,6 +233,7 @@ const logout = async (req, res) => {
     message: "Logout successful",
   });
 };
+
 
 module.exports = {
   register,
