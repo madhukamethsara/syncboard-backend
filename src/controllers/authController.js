@@ -168,6 +168,21 @@ const login = async (req, res) => {
       });
     }
 
+    if (!user.isEmailVerified) {
+      const { token: verificationToken, hashedToken } =
+        generateVerificationToken();
+
+      user.emailVerificationToken = hashedToken;
+      user.emailVerificationExpires = new Date(Date.now() + 60 * 60 * 1000);
+      await user.save();
+      await sendVerificationEmail(user.email, verificationToken);
+
+      return res.status(403).json({
+        success: false,
+        message: "Please verify your email. A new verification email was sent.",
+      });
+    }
+
     //Create JWT
     const token = jwt.sign(
       {

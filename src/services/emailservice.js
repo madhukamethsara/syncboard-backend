@@ -5,7 +5,7 @@ const sendVerificationEmail = async (email, token) => {
     `http://localhost:5000/api/auth/verify-email/${token}`;
 
   await transporter.sendMail({
-    from: '"SyncBoard" <no-reply@syncboard.com>',
+    from: `"SyncBoard" <${process.env.EMAIL_USER}>`,
     to: email,
     subject: "Verify your SyncBoard email",
     text: `Verify your email by visiting: ${verificationUrl}`,
