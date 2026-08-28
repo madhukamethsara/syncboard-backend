@@ -442,6 +442,67 @@ This invitation expires in 24 hours.`,
   }
 };
 
+const getTeamInvitations = async (req, res) => {
+  try {
+    const { teamId } = req.params;
+
+    // Find the team
+    const team = await Team.findById(teamId);
+
+    if (!team) {
+      return res.status(404).json({
+        success: false,
+        message: "Team not found",
+      });
+    }
+
+    // Check if logged-in user belongs to the team
+    const currentMember = team.members.find(
+      (member) =>
+        member.user.toString() === req.user._id.toString()
+    );
+
+    if (!currentMember) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not a member of this team",
+      });
+    }
+
+    // Only owner/admin can view invitations
+    if (
+      currentMember.role !== "owner" &&
+      currentMember.role !== "admin"
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "You do not have permission to view invitations",
+      });
+    }
+
+    // Get pending invitations
+    const invitations = await TeamInvitation.find({
+      team: teamId,
+      status: "pending",
+    })
+      .select("-tokenHash")
+      .populate("invitedBy", "name email")
+      .sort({ createdAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      invitations,
+    });
+  } catch (error) {
+    console.error("Get team invitations error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+};
+
 module.exports = {
   createTeam,
   getMyTeams,
@@ -451,4 +512,5 @@ module.exports = {
   getTeamMembers,
   updateMemberRole,
   createTeamInvitation,
+  getTeamInvitations,
 };

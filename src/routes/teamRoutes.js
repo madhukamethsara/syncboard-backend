@@ -9,6 +9,7 @@ const {
   getTeamMembers,
   updateMemberRole,
   createTeamInvitation,
+  getTeamInvitations,
 } = require("../controllers/teamController");
 
 const authenticate = require("../middleware/authmiddleware");
@@ -24,5 +25,6 @@ router.delete("/:teamId", authenticate, deleteTeam);
 router.get("/:teamId/members", authenticate, getTeamMembers);
 router.patch("/:teamId/members/:userId/role",authenticate,updateMemberRole);
 router.post("/:teamId/invitations",authenticate,createTeamInvitation);
+router.get("/:teamId/invitations",authenticate,getTeamInvitations);
 
 module.exports = router;
