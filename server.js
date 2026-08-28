@@ -20,6 +20,9 @@ const authRoutes = require("./src/routes/authRoutes");
 const userRoutes = require("./src/routes/userRoutes");
 const teamRoutes = require("./src/routes/teamRoutes");
 const invitationRoutes = require("./src/routes/invitationRoutes");
+const boardRoutes = require("./src/routes/boardRoutes");
+const columnRoutes = require("./src/routes/columnRoutes");
+const taskRoutes = require("./src/routes/taskRoutes");
 
 const app = express();
 
@@ -46,6 +49,9 @@ app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/teams", teamRoutes);
 app.use("/api/invitations", invitationRoutes);
+app.use("/api/boards", boardRoutes);
+app.use("/api/columns", columnRoutes);
+app.use("/api/tasks", taskRoutes);
 
 // HEALTH CHECK
 app.get("/api/health", (req, res) => {
