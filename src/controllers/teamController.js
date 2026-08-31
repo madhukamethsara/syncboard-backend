@@ -1,9 +1,18 @@
 const Team = require("../models/Team");
 const TeamInvitation = require("../models/TeamInvitation");
+const Board = require("../models/Board");
+const Column = require("../models/Column");
+const Task = require("../models/Task");
+const {
+  createTeamSchema,
+  updateTeamSchema,
+  updateMemberRoleSchema,
+  createInvitationSchema,
+} = require("../validators/teamValidator");
+const User = require("../models/User");
+const Notification = require("../models/Notification");
 const generateInvitationToken = require("../utils/invitationToken");
 const transporter = require("../utils/mailer");
-const { createTeamSchema ,updateTeamSchema ,updateMemberRoleSchema,createInvitationSchema} = require("../validators/teamValidator");
-
 
 const createTeam = async (req, res) => {
   try {
@@ -92,7 +101,7 @@ const getTeamById = async (req, res) => {
 
     // Check whether logged-in user belongs to this team
     const isMember = team.members.some(
-      (member) => member.user._id.toString() === userId.toString()
+      (member) => member.user._id.toString() === userId.toString(),
     );
 
     if (!isMember) {
@@ -189,8 +198,15 @@ const deleteTeam = async (req, res) => {
       });
     }
 
-    // Delete team
-    await Team.findByIdAndDelete(teamId);
+    const boards = await Board.find({ team: teamId }).select("_id");
+    const boardIds = boards.map((board) => board._id);
+    await Promise.all([
+      Task.deleteMany({ board: { $in: boardIds } }),
+      Column.deleteMany({ board: { $in: boardIds } }),
+      Board.deleteMany({ team: teamId }),
+      TeamInvitation.deleteMany({ team: teamId }),
+      Team.findByIdAndDelete(teamId),
+    ]);
 
     return res.status(200).json({
       success: true,
@@ -213,7 +229,7 @@ const getTeamMembers = async (req, res) => {
 
     const team = await Team.findById(teamId).populate(
       "members.user",
-      "name email avatar"
+      "name email avatar",
     );
 
     if (!team) {
@@ -224,7 +240,7 @@ const getTeamMembers = async (req, res) => {
     }
 
     const isMember = team.members.some(
-      (member) => member.user._id.toString() === userId.toString()
+      (member) => member.user._id.toString() === userId.toString(),
     );
 
     if (!isMember) {
@@ -283,7 +299,7 @@ const updateMemberRole = async (req, res) => {
     }
 
     const member = team.members.find(
-      (member) => member.user.toString() === userId
+      (member) => member.user.toString() === userId,
     );
 
     if (!member) {
@@ -350,15 +366,11 @@ const createTeamInvitation = async (req, res) => {
 
     // 3. Find logged-in user's membership
     const loggedInMember = team.members.find(
-      (member) =>
-        member.user.toString() === loggedInUserId.toString()
+      (member) => member.user.toString() === loggedInUserId.toString(),
     );
 
     // Only owner/admin can invite
-    if (
-      !loggedInMember ||
-      !["owner", "admin"].includes(loggedInMember.role)
-    ) {
+    if (!loggedInMember || !["owner", "admin"].includes(loggedInMember.role)) {
       return res.status(403).json({
         success: false,
         message: "You do not have permission to invite members",
@@ -398,14 +410,11 @@ const createTeamInvitation = async (req, res) => {
       role,
       invitedBy: loggedInUserId,
       tokenHash,
-      expiresAt: new Date(
-        Date.now() + 24 * 60 * 60 * 1000
-      ),
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
     });
 
     // 7. Build invitation link
-    const inviteUrl =
-      `http://localhost:5000/api/invitations/${token}/accept`;
+    const inviteUrl = `http://localhost:5000/api/invitations/${token}/accept`;
 
     // 8. Send email
     await transporter.sendMail({
@@ -420,6 +429,23 @@ ${inviteUrl}
 
 This invitation expires in 24 hours.`,
     });
+
+    const invitedUser = await User.findOne({
+      email: email.toLowerCase(),
+    });
+
+    if (
+      invitedUser &&
+      invitedUser._id.toString() !== loggedInUserId.toString()
+    ) {
+      await Notification.create({
+        user: invitedUser._id,
+        type: "team_invitation",
+        title: "Team invitation",
+        message: `You were invited to join "${team.name}" as ${role}`,
+        relatedTeam: team._id,
+      });
+    }
 
     return res.status(201).json({
       success: true,
@@ -458,8 +484,7 @@ const getTeamInvitations = async (req, res) => {
 
     // Check if logged-in user belongs to the team
     const currentMember = team.members.find(
-      (member) =>
-        member.user.toString() === req.user._id.toString()
+      (member) => member.user.toString() === req.user._id.toString(),
     );
 
     if (!currentMember) {
@@ -470,10 +495,7 @@ const getTeamInvitations = async (req, res) => {
     }
 
     // Only owner/admin can view invitations
-    if (
-      currentMember.role !== "owner" &&
-      currentMember.role !== "admin"
-    ) {
+    if (currentMember.role !== "owner" && currentMember.role !== "admin") {
       return res.status(403).json({
         success: false,
         message: "You do not have permission to view invitations",
