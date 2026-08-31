@@ -1,47 +1,52 @@
 const Task = require("../models/Task");
 const Board = require("../models/Board");
 const Column = require("../models/Column");
+const Notification = require("../models/Notification");
 
 const {
   createTaskSchema,
   updateTaskSchema,
 } = require("../validators/taskValidator");
 
-function getBoardPermission(board, userId) {
-  if (!board.team) {
-    const isCreator = board.createdBy?.toString() === userId;
+const {
+  getBoardPermission,
+  isBoardAssignee,
+  isValidId,
+} = require("../utils/boardAccess");
 
-    return {
-      canView: isCreator,
-      canEdit: isCreator,
-      canDelete: isCreator,
-    };
+const boardQuery = (id) =>
+  Board.findById(id).populate("team", "owner members");
+
+const populateTask = (query) =>
+  query
+    .populate("assignedTo", "name email avatar")
+    .populate("createdBy", "name email avatar")
+    .populate("column", "name position")
+    .populate("comments.user", "name email avatar");
+
+const validationError = (res, result) =>
+  res.status(400).json({
+    success: false,
+    message: "Validation failed",
+    errors: result.error.flatten().fieldErrors,
+  });
+
+async function taskAndBoard(taskId) {
+  if (!isValidId(taskId)) {
+    return {};
   }
 
-  const team = board.team;
+  const task = await Task.findById(taskId);
 
-  const isOwner = team.owner?.toString() === userId;
+  if (!task) {
+    return {};
+  }
 
-  const member = team.members?.find(
-    (member) => member.user?.toString() === userId,
-  );
+  const board = await boardQuery(task.board);
 
   return {
-    canView: Boolean(isOwner || member),
-
-    canEdit: Boolean(
-      isOwner ||
-      member?.role === "owner" ||
-      member?.role === "admin" ||
-      member?.role === "member",
-    ),
-
-    canDelete: Boolean(
-      isOwner ||
-      member?.role === "owner" ||
-      member?.role === "admin" ||
-      member?.role === "member",
-    ),
+    task,
+    board,
   };
 }
 
@@ -50,29 +55,12 @@ const createTask = async (req, res) => {
     const result = createTaskSchema.safeParse(req.body);
 
     if (!result.success) {
-      return res.status(400).json({
-        success: false,
-        message: "Validation failed",
-        errors: result.error.flatten().fieldErrors,
-      });
+      return validationError(res, result);
     }
 
-    const {
-      title,
-      description,
-      boardId,
-      columnId,
-      assignedTo,
-      priority,
-      dueDate,
-    } = result.data;
+    const data = result.data;
 
-    const userId = req.user._id.toString();
-
-    const board = await Board.findById(boardId).populate(
-      "team",
-      "owner members",
-    );
+    const board = await boardQuery(data.boardId);
 
     if (!board) {
       return res.status(404).json({
@@ -81,9 +69,7 @@ const createTask = async (req, res) => {
       });
     }
 
-    const permission = getBoardPermission(board, userId);
-
-    if (!permission.canEdit) {
+    if (!getBoardPermission(board, req.user._id).canEdit) {
       return res.status(403).json({
         success: false,
         message: "You do not have access to this board",
@@ -91,8 +77,8 @@ const createTask = async (req, res) => {
     }
 
     const column = await Column.findOne({
-      _id: columnId,
-      board: boardId,
+      _id: data.columnId,
+      board: board._id,
     });
 
     if (!column) {
@@ -102,30 +88,51 @@ const createTask = async (req, res) => {
       });
     }
 
+    if (!isBoardAssignee(board, data.assignedTo)) {
+      return res.status(400).json({
+        success: false,
+        message: "Assignee must be a member of this board",
+      });
+    }
+
     const lastTask = await Task.findOne({
-      column: columnId,
+      column: column._id,
     }).sort({
       position: -1,
     });
 
-    const position = lastTask ? lastTask.position + 1 : 0;
-
     const task = await Task.create({
-      title,
-      description,
-      board: boardId,
-      column: columnId,
-      assignedTo: assignedTo || null,
+      title: data.title,
+      description: data.description,
+      board: board._id,
+      column: column._id,
+      assignedTo: data.assignedTo,
       createdBy: req.user._id,
-      priority,
-      dueDate: dueDate || null,
-      position,
+      priority: data.priority,
+      dueDate: data.dueDate || null,
+      labels: data.labels,
+      attachments: data.attachments,
+      position: lastTask ? lastTask.position + 1 : 0,
     });
 
-    const populatedTask = await Task.findById(task._id)
-      .populate("assignedTo", "name email avatar")
-      .populate("createdBy", "name email avatar")
-      .populate("column", "name position");
+    if (
+      data.assignedTo &&
+      data.assignedTo.toString() !== req.user._id.toString()
+    ) {
+      await Notification.create({
+        user: data.assignedTo,
+        type: "task_assigned",
+        title: "New task assigned",
+        message: `You were assigned to "${task.title}"`,
+        relatedTeam: board.team?._id || null,
+        relatedBoard: board._id,
+        relatedTask: task._id,
+      });
+    }
+
+    const populatedTask = await populateTask(
+      Task.findById(task._id)
+    );
 
     return res.status(201).json({
       success: true,
@@ -137,21 +144,21 @@ const createTask = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: "Internal server error",
+      message: "Unable to create task",
     });
   }
 };
 
 const getBoardTasks = async (req, res) => {
   try {
-    const { boardId } = req.params;
+    if (!isValidId(req.params.boardId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid board ID",
+      });
+    }
 
-    const userId = req.user._id.toString();
-
-    const board = await Board.findById(boardId).populate(
-      "team",
-      "owner members",
-    );
+    const board = await boardQuery(req.params.boardId);
 
     if (!board) {
       return res.status(404).json({
@@ -160,63 +167,47 @@ const getBoardTasks = async (req, res) => {
       });
     }
 
-    const permission = getBoardPermission(board, userId);
-
-    if (!permission.canView) {
+    if (!getBoardPermission(board, req.user._id).canView) {
       return res.status(403).json({
         success: false,
         message: "You do not have access to this board",
       });
     }
 
-    const tasks = await Task.find({
-      board: boardId,
-    })
-      .populate("assignedTo", "name email")
-      .populate("createdBy", "name email")
-      .populate("column", "name position")
-      .populate("comments.user", "name email")
-      .sort({
+    const tasks = await populateTask(
+      Task.find({
+        board: board._id,
+      }).sort({
         position: 1,
-      });
+        createdAt: 1,
+      })
+    );
 
-    return res.status(200).json({
+    return res.json({
       success: true,
       tasks,
     });
   } catch (error) {
-    console.error("GET BOARD TASKS ERROR:", error);
+    console.error("GET TASKS ERROR:", error);
 
     return res.status(500).json({
       success: false,
-      message: "Internal server error",
+      message: "Unable to load tasks",
     });
   }
 };
 
 const updateTask = async (req, res) => {
   try {
-    const { taskId } = req.params;
-
-    const userId = req.user._id.toString();
-
     const result = updateTaskSchema.safeParse(req.body);
 
     if (!result.success) {
-      return res.status(400).json({
-        success: false,
-        message: "Validation failed",
-        errors: result.error.flatten().fieldErrors,
-      });
+      return validationError(res, result);
     }
 
-    const task = await Task.findById(taskId).populate({
-      path: "board",
-      populate: {
-        path: "team",
-        select: "owner members",
-      },
-    });
+    const { task, board } = await taskAndBoard(
+      req.params.taskId
+    );
 
     if (!task) {
       return res.status(404).json({
@@ -225,91 +216,135 @@ const updateTask = async (req, res) => {
       });
     }
 
-    if (!task.board) {
-      return res.status(404).json({
-        success: false,
-        message: "Board not found",
-      });
-    }
-
-    const permission = getBoardPermission(task.board, userId);
-
-    if (!permission.canEdit) {
+    if (
+      !board ||
+      !getBoardPermission(board, req.user._id).canEdit
+    ) {
       return res.status(403).json({
         success: false,
-        message: "You do not have permission to update this task",
+        message:
+          "You do not have permission to update this task",
       });
     }
 
-    const updateData = {
+    const previousAssignee = task.assignedTo
+      ? task.assignedTo.toString()
+      : null;
+
+    const update = {
       ...result.data,
     };
 
-    if (updateData.columnId) {
-      const newColumn = await Column.findOne({
-        _id: updateData.columnId,
-        board: task.board._id,
+    if (
+      Object.prototype.hasOwnProperty.call(
+        update,
+        "assignedTo"
+      ) &&
+      !isBoardAssignee(board, update.assignedTo)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Assignee must be a member of this board",
+      });
+    }
+
+    if (update.columnId) {
+      const column = await Column.findOne({
+        _id: update.columnId,
+        board: board._id,
       });
 
-      if (!newColumn) {
+      if (!column) {
         return res.status(400).json({
           success: false,
           message: "Column does not belong to this board",
         });
       }
 
-      updateData.column = updateData.columnId;
+      if (
+        task.column.toString() !== column._id.toString()
+      ) {
+        const lastTask = await Task.findOne({
+          column: column._id,
+          _id: {
+            $ne: task._id,
+          },
+        }).sort({
+          position: -1,
+        });
 
-      delete updateData.columnId;
+        update.position = lastTask
+          ? lastTask.position + 1
+          : 0;
+      }
 
-      const lastTask = await Task.findOne({
-        column: newColumn._id,
-        _id: {
-          $ne: taskId,
-        },
-      }).sort({
-        position: -1,
-      });
+      update.column = update.columnId;
 
-      updateData.position = lastTask ? lastTask.position + 1 : 0;
+      delete update.columnId;
     }
 
-    const updatedTask = await Task.findByIdAndUpdate(taskId, updateData, {
-      new: true,
-      runValidators: true,
-    })
-      .populate("assignedTo", "name email avatar")
-      .populate("createdBy", "name email avatar")
-      .populate("column", "name position");
+    if (update.dueDate === "") {
+      update.dueDate = null;
+    }
 
-    return res.status(200).json({
+    await Task.updateOne(
+      {
+        _id: task._id,
+      },
+      update,
+      {
+        runValidators: true,
+      }
+    );
+
+    const updatedTask = await Task.findById(
+      task._id
+    );
+
+    const newAssignee = updatedTask.assignedTo
+      ? updatedTask.assignedTo.toString()
+      : null;
+
+    if (
+      newAssignee &&
+      newAssignee !== previousAssignee &&
+      newAssignee !== req.user._id.toString()
+    ) {
+      await Notification.create({
+        user: newAssignee,
+        type: "task_assigned",
+        title: "Task assigned to you",
+        message: `You were assigned to "${updatedTask.title}"`,
+        relatedTeam: board.team?._id || null,
+        relatedBoard: board._id,
+        relatedTask: updatedTask._id,
+      });
+    }
+
+    const populatedTask = await populateTask(
+      Task.findById(task._id)
+    );
+
+    return res.json({
       success: true,
       message: "Task updated successfully",
-      task: updatedTask,
+      task: populatedTask,
     });
   } catch (error) {
     console.error("UPDATE TASK ERROR:", error);
 
     return res.status(500).json({
       success: false,
-      message: "Internal server error",
+      message: "Unable to update task",
     });
   }
 };
 
 const deleteTask = async (req, res) => {
   try {
-    const { taskId } = req.params;
-
-    const userId = req.user._id.toString();
-
-    const task = await Task.findById(taskId).populate({
-      path: "board",
-      populate: {
-        path: "team",
-        select: "owner members",
-      },
-    });
+    const { task, board } = await taskAndBoard(
+      req.params.taskId
+    );
 
     if (!task) {
       return res.status(404).json({
@@ -318,25 +353,22 @@ const deleteTask = async (req, res) => {
       });
     }
 
-    if (!task.board) {
-      return res.status(404).json({
-        success: false,
-        message: "Board not found",
-      });
-    }
-
-    const permission = getBoardPermission(task.board, userId);
-
-    if (!permission.canDelete) {
+    if (
+      !board ||
+      !getBoardPermission(board, req.user._id).canEdit
+    ) {
       return res.status(403).json({
         success: false,
-        message: "You do not have permission to delete this task",
+        message:
+          "You do not have permission to delete this task",
       });
     }
 
-    await Task.findByIdAndDelete(taskId);
+    await Task.deleteOne({
+      _id: task._id,
+    });
 
-    return res.status(200).json({
+    return res.json({
       success: true,
       message: "Task deleted successfully",
     });
@@ -345,76 +377,67 @@ const deleteTask = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: "Internal server error",
+      message: "Unable to delete task",
     });
   }
 };
 
 const addTaskComment = async (req, res) => {
   try {
-    const { taskId } = req.params;
+    const text = req.body.text?.trim();
 
-    const { text } = req.body;
-
-    if (!text || !text.trim()) {
+    if (!text || text.length > 1000) {
       return res.status(400).json({
-        message: "Comment text is required",
+        success: false,
+        message:
+          "Comment must contain 1 to 1000 characters",
       });
     }
 
-    const task = await Task.findById(taskId).populate({
-      path: "board",
-      populate: {
-        path: "team",
-        select: "owner members",
-      },
-    });
+    const { task, board } = await taskAndBoard(
+      req.params.taskId
+    );
 
     if (!task) {
       return res.status(404).json({
+        success: false,
         message: "Task not found",
       });
     }
 
-    if (!task.board) {
-      return res.status(404).json({
-        message: "Board not found",
-      });
-    }
-
-    const userId = req.user._id?.toString() || req.user.id?.toString();
-
-    const permission = getBoardPermission(task.board, userId);
-
-    if (!permission.canView) {
+    if (
+      !board ||
+      !getBoardPermission(board, req.user._id).canView
+    ) {
       return res.status(403).json({
-        message: "You do not have permission to comment on this task",
+        success: false,
+        message:
+          "You do not have permission to comment on this task",
       });
     }
 
     task.comments.push({
-      user: userId,
-      text: text.trim(),
+      user: req.user._id,
+      text,
     });
 
     await task.save();
 
-    await task.populate({
-      path: "comments.user",
-      select: "name email",
-    });
-
-    const newComment = task.comments[task.comments.length - 1];
+    const populated = await populateTask(
+      Task.findById(task._id)
+    );
 
     return res.status(201).json({
+      success: true,
       message: "Comment added",
-      comment: newComment,
+      comment: populated.comments.at(-1),
     });
   } catch (error) {
-    console.error("ADD TASK COMMENT ERROR:", error);
+    console.error("ADD COMMENT ERROR:", error);
 
     return res.status(500).json({
-      message: "Failed to add comment",
+      success: false,
+      message: "Unable to add comment",
     });
   }
 };
