@@ -23,6 +23,7 @@ const invitationRoutes = require("./src/routes/invitationRoutes");
 const boardRoutes = require("./src/routes/boardRoutes");
 const columnRoutes = require("./src/routes/columnRoutes");
 const taskRoutes = require("./src/routes/taskRoutes");
+const notificationRoutes = require("./src/routes/notificationRoutes");
 
 const app = express();
 
@@ -34,7 +35,7 @@ app.use(express.json());
 
 app.use(
   cors({
-    origin: "http://localhost:5173",
+    origin: process.env.CLIENT_URL || "http://localhost:5173",
     credentials: true,
   })
 );
@@ -52,6 +53,7 @@ app.use("/api/invitations", invitationRoutes);
 app.use("/api/boards", boardRoutes);
 app.use("/api/columns", columnRoutes);
 app.use("/api/tasks", taskRoutes);
+app.use("/api/notifications",notificationRoutes);
 
 // HEALTH CHECK
 app.get("/api/health", (req, res) => {
