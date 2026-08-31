@@ -49,6 +49,16 @@ const taskSchema = new mongoose.Schema(
       default: null,
     },
 
+    labels: {
+      type: [String],
+      default: [],
+    },
+
+    attachments: {
+      type: [String],
+      default: [],
+    },
+
     position: {
       type: Number,
       required: true,
