@@ -36,7 +36,7 @@ const updateBoardSchema = z.object({
     .trim()
     .max(500, "Description cannot exceed 500 characters")
     .optional(),
-});
+}).refine((data) => Object.keys(data).length > 0, "At least one board field is required");
 
 module.exports = {
   createBoardSchema,
