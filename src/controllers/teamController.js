@@ -1,8 +1,18 @@
 const Team = require("../models/Team");
-const generateJoinCode = require("../utils/joinCode");
+const TeamInvitation = require("../models/TeamInvitation");
+const Board = require("../models/Board");
+const Column = require("../models/Column");
+const Task = require("../models/Task");
+const {
+  createTeamSchema,
+  updateTeamSchema,
+  updateMemberRoleSchema,
+  createInvitationSchema,
+} = require("../validators/teamValidator");
+const User = require("../models/User");
+const Notification = require("../models/Notification");
+const generateInvitationToken = require("../utils/invitationToken");
 const transporter = require("../utils/mailer");
-const { createTeamSchema ,updateTeamSchema ,updateMemberRoleSchema,inviteByEmailSchema, joinTeamByCodeSchema} = require("../validators/teamValidator");
-
 
 const createTeam = async (req, res) => {
   try {
@@ -91,7 +101,7 @@ const getTeamById = async (req, res) => {
 
     // Check whether logged-in user belongs to this team
     const isMember = team.members.some(
-      (member) => member.user._id.toString() === userId.toString()
+      (member) => member.user._id.toString() === userId.toString(),
     );
 
     if (!isMember) {
@@ -188,8 +198,15 @@ const deleteTeam = async (req, res) => {
       });
     }
 
-    // Delete team
-    await Team.findByIdAndDelete(teamId);
+    const boards = await Board.find({ team: teamId }).select("_id");
+    const boardIds = boards.map((board) => board._id);
+    await Promise.all([
+      Task.deleteMany({ board: { $in: boardIds } }),
+      Column.deleteMany({ board: { $in: boardIds } }),
+      Board.deleteMany({ team: teamId }),
+      TeamInvitation.deleteMany({ team: teamId }),
+      Team.findByIdAndDelete(teamId),
+    ]);
 
     return res.status(200).json({
       success: true,
@@ -212,7 +229,7 @@ const getTeamMembers = async (req, res) => {
 
     const team = await Team.findById(teamId).populate(
       "members.user",
-      "name email avatar"
+      "name email avatar",
     );
 
     if (!team) {
@@ -223,7 +240,7 @@ const getTeamMembers = async (req, res) => {
     }
 
     const isMember = team.members.some(
-      (member) => member.user._id.toString() === userId.toString()
+      (member) => member.user._id.toString() === userId.toString(),
     );
 
     if (!isMember) {
@@ -282,7 +299,7 @@ const updateMemberRole = async (req, res) => {
     }
 
     const member = team.members.find(
-      (member) => member.user.toString() === userId
+      (member) => member.user.toString() === userId,
     );
 
     if (!member) {
@@ -346,14 +363,11 @@ const inviteByEmail = async (req, res) => {
     }
 
     const loggedInMember = team.members.find(
-      (member) =>
-        member.user.toString() === loggedInUserId.toString()
+      (member) => member.user.toString() === loggedInUserId.toString(),
     );
 
-    if (
-      !loggedInMember ||
-      !["owner", "admin"].includes(loggedInMember.role)
-    ) {
+    // Only owner/admin can invite
+    if (!loggedInMember || !["owner", "admin"].includes(loggedInMember.role)) {
       return res.status(403).json({
         success: false,
         message: "You do not have permission to invite members",
@@ -388,17 +402,16 @@ Or log in and enter the code manually.`,
       success: true,
       message: "Invitation email sent successfully",
       email,
-      joinCode: team.joinCode,
+      role,
+      invitedBy: loggedInUserId,
+      tokenHash,
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
     });
   } catch (error) {
     console.error("Invite by email error:", error);
 
-    return res.status(500).json({
-      success: false,
-      message: "Internal server error",
-    });
-  }
-};
+    // 7. Build invitation link
+    const inviteUrl = `http://localhost:5000/api/invitations/${token}/accept`;
 
 const getJoinCode = async (req, res) => {
   try {
@@ -421,7 +434,24 @@ const getJoinCode = async (req, res) => {
       });
     }
 
-    return res.status(200).json({
+    const invitedUser = await User.findOne({
+      email: email.toLowerCase(),
+    });
+
+    if (
+      invitedUser &&
+      invitedUser._id.toString() !== loggedInUserId.toString()
+    ) {
+      await Notification.create({
+        user: invitedUser._id,
+        type: "team_invitation",
+        title: "Team invitation",
+        message: `You were invited to join "${team.name}" as ${role}`,
+        relatedTeam: team._id,
+      });
+    }
+
+    return res.status(201).json({
       success: true,
       joinCode: team.joinCode,
     });
@@ -449,50 +479,21 @@ const regenerateJoinCode = async (req, res) => {
       });
     }
 
-    if (team.owner.toString() !== userId.toString()) {
+    // Check if logged-in user belongs to the team
+    const currentMember = team.members.find(
+      (member) => member.user.toString() === req.user._id.toString(),
+    );
+
+    if (!currentMember) {
       return res.status(403).json({
         success: false,
         message: "Only the team owner can regenerate the join code",
       });
     }
 
-    team.joinCode = generateJoinCode();
-    await team.save();
-
-    return res.status(200).json({
-      success: true,
-      message: "Join code regenerated successfully",
-      joinCode: team.joinCode,
-    });
-  } catch (error) {
-    console.error("Regenerate join code error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Internal server error",
-    });
-  }
-};
-
-const joinTeamByCode = async (req, res) => {
-  try {
-    const result = joinTeamByCodeSchema.safeParse(req.body);
-
-    if (!result.success) {
-      return res.status(400).json({
-        success: false,
-        message: "Validation failed",
-        errors: result.error.flatten().fieldErrors,
-      });
-    }
-
-    const { code } = result.data;
-    const userId = req.user._id;
-
-    const team = await Team.findOne({ joinCode: code });
-
-    if (!team) {
-      return res.status(404).json({
+    // Only owner/admin can view invitations
+    if (currentMember.role !== "owner" && currentMember.role !== "admin") {
+      return res.status(403).json({
         success: false,
         message: "Invalid join code",
       });
@@ -542,8 +543,6 @@ module.exports = {
   deleteTeam,
   getTeamMembers,
   updateMemberRole,
-  inviteByEmail,
-  getJoinCode,
-  regenerateJoinCode,
-  joinTeamByCode,
+  createTeamInvitation,
+  getTeamInvitations,
 };
