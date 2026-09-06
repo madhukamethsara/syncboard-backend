@@ -23,12 +23,7 @@ const getMyProfile = async (req, res) => {
 const updateMyProfile = async (req, res) => {
 
   try {
-    console.log("PROFILE UPDATE CALLED");
-    console.log("BODY:", req.body);
-
     const result = updateProfileSchema.safeParse(req.body);
-
-    console.log("VALIDATION:", result);
 
     if (!result.success) {
       return res.status(400).json({

@@ -1,8 +1,9 @@
 const transporter = require("../utils/mailer");
 
 const sendVerificationEmail = async (email, token) => {
+  const baseUrl = process.env.BASE_URL || "http://localhost:5000";
   const verificationUrl =
-    `http://localhost:5000/api/auth/verify-email/${token}`;
+    `${baseUrl}/api/auth/verify-email/${token}`;
 
   await transporter.sendMail({
     from: `"SyncBoard" <${process.env.EMAIL_USER}>`,

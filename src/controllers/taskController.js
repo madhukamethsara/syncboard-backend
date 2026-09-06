@@ -1,53 +1,21 @@
 const Task = require("../models/Task");
 const Board = require("../models/Board");
 const Column = require("../models/Column");
+const { getBoardPermission } = require("../utils/boardAccess");
 
 const {
   createTaskSchema,
   updateTaskSchema,
 } = require("../validators/taskValidator");
 
-function getBoardPermission(board, userId) {
-  if (!board.team) {
-    const isCreator = board.createdBy?.toString() === userId;
-
-    return {
-      canView: isCreator,
-      canEdit: isCreator,
-      canDelete: isCreator,
-    };
-  }
-
-  const team = board.team;
-
-  const isOwner = team.owner?.toString() === userId;
-
-  const member = team.members?.find(
-    (member) => member.user?.toString() === userId,
-  );
-
-  return {
-    canView: Boolean(isOwner || member),
-
-    canEdit: Boolean(
-      isOwner ||
-      member?.role === "owner" ||
-      member?.role === "admin" ||
-      member?.role === "member",
-    ),
-
-    canDelete: Boolean(
-      isOwner ||
-      member?.role === "owner" ||
-      member?.role === "admin" ||
-      member?.role === "member",
-    ),
-  };
-}
-
 const createTask = async (req, res) => {
   try {
-    const result = createTaskSchema.safeParse(req.body);
+    const bodyData = { ...req.body };
+    if (req.params.boardId) {
+      bodyData.boardId = req.params.boardId;
+    }
+
+    const result = createTaskSchema.safeParse(bodyData);
 
     if (!result.success) {
       return res.status(400).json({

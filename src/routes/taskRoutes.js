@@ -8,7 +8,7 @@ const {
   addTaskComment,
 } = require("../controllers/taskController");
 
-const authenticate = require("../middleware/authmiddleware");
+const authenticate = require("../middleware/authMiddleware");
 
 const router = express.Router();
 
