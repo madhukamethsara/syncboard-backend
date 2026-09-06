@@ -1,53 +1,12 @@
 const Column = require("../models/Column");
 const Board = require("../models/Board");
 const Task = require("../models/Task");
+const { getBoardPermission } = require("../utils/boardAccess");
 
 const {
   createColumnSchema,
   updateColumnSchema,
 } = require("../validators/columnValidator");
-
-function getBoardPermission(board, userId) {
-  if (!board.team) {
-    const isCreator =
-      board.createdBy?.toString() === userId;
-
-    return {
-      canView: isCreator,
-      canEdit: isCreator,
-      canDelete: isCreator,
-    };
-  }
-
-  const team = board.team;
-
-  const isOwner =
-    team.owner?.toString() === userId;
-
-  const member = team.members?.find(
-    (member) =>
-      member.user?.toString() === userId
-  );
-
-  return {
-    canView: Boolean(
-      isOwner || member
-    ),
-
-    canEdit: Boolean(
-      isOwner ||
-        member?.role === "owner" ||
-        member?.role === "admin" ||
-        member?.role === "member"
-    ),
-
-    canDelete: Boolean(
-      isOwner ||
-        member?.role === "owner" ||
-        member?.role === "admin"
-    ),
-  };
-}
 
 const createColumn = async (req, res) => {
   try {

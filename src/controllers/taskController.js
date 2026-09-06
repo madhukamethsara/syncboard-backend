@@ -52,7 +52,12 @@ async function taskAndBoard(taskId) {
 
 const createTask = async (req, res) => {
   try {
-    const result = createTaskSchema.safeParse(req.body);
+    const bodyData = { ...req.body };
+    if (req.params.boardId) {
+      bodyData.boardId = req.params.boardId;
+    }
+
+    const result = createTaskSchema.safeParse(bodyData);
 
     if (!result.success) {
       return validationError(res, result);
