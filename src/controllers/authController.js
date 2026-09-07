@@ -38,27 +38,30 @@ const register = async (req, res) => {
       type: argon2.argon2id,
     });
 
-    // Generate email verification token
-    const { token, hashedToken } = generateVerificationToken();
+    const verificationRequired = process.env.EMAIL_VERIFICATION_REQUIRED === "true";
+    const { token, hashedToken } = verificationRequired
+      ? generateVerificationToken()
+      : { token: null, hashedToken: null };
 
     // Save user
     const user = await User.create({
       name,
       email,
       passwordHash,
-      emailVerificationToken: hashedToken,
-      emailVerificationExpires: new Date(
-        Date.now() + 60 * 60 * 1000
-      ),
+      isEmailVerified: !verificationRequired,
+      ...(verificationRequired && {
+        emailVerificationToken: hashedToken,
+        emailVerificationExpires: new Date(Date.now() + 60 * 60 * 1000),
+      }),
     });
 
-    // Send verification email
-    await sendVerificationEmail(user.email, token);
+    if (verificationRequired) await sendVerificationEmail(user.email, token);
 
     return res.status(201).json({
       success: true,
-      message:
-        "User registered successfully. Please check your email to verify your account.",
+      message: verificationRequired
+        ? "User registered successfully. Please check your email to verify your account."
+        : "User registered successfully",
       user: {
         id: user._id,
         name: user.name,
