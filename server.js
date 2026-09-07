@@ -27,11 +27,9 @@ app.use(express.json());
 
 app.use(
   cors({
-<<<<<<< HEAD
+
     origin: FRONTEND_URL,
-=======
     origin: process.env.CLIENT_URL || "http://localhost:5173",
->>>>>>> 3ef2cba277f1f64489053f32924c84bfb35fbd09
     credentials: true,
   })
 );
