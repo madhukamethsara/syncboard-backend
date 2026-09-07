@@ -16,6 +16,12 @@ const teamSchema = new mongoose.Schema(
       required: true,
     },
 
+    joinCode: {
+      type: String,
+      unique: true,
+      sparse: true,
+    },
+
     members: [
       {
         user: {

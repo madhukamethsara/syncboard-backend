@@ -20,21 +20,25 @@ const updateMemberRoleSchema = z.object({
   role: z.enum(["admin", "member"]),
 });
 
-const createInvitationSchema = z.object({
+const inviteByEmailSchema = z.object({
   email: z
     .string()
     .trim()
     .email("Please enter a valid email address")
     .transform((email) => email.toLowerCase()),
+});
 
-  role: z
-    .enum(["admin", "member"])
-    .default("member"),
+const joinTeamByCodeSchema = z.object({
+  code: z
+    .string()
+    .length(6, "Join code must be exactly 6 characters")
+    .regex(/^[A-Z0-9]+$/, "Join code must be uppercase alphanumeric"),
 });
 
 module.exports = {
   createTeamSchema,
   updateTeamSchema,
   updateMemberRoleSchema,
-  createInvitationSchema,
+  inviteByEmailSchema,
+  joinTeamByCodeSchema,
 };
