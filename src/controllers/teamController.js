@@ -7,10 +7,11 @@ const {
   createTeamSchema,
   updateTeamSchema,
   updateMemberRoleSchema,
-  createInvitationSchema,
+  inviteByEmailSchema,
 } = require("../validators/teamValidator");
 const User = require("../models/User");
 const Notification = require("../models/Notification");
+const generateJoinCode = require("../utils/joinCode");
 const generateInvitationToken = require("../utils/invitationToken");
 const transporter = require("../utils/mailer");
 
@@ -351,7 +352,7 @@ const inviteByEmail = async (req, res) => {
       });
     }
 
-    const { email } = result.data;
+    const { email, role } = result.data;
 
     const team = await Team.findById(teamId);
 
@@ -366,13 +367,40 @@ const inviteByEmail = async (req, res) => {
       (member) => member.user.toString() === loggedInUserId.toString(),
     );
 
-    // Only owner/admin can invite
     if (!loggedInMember || !["owner", "admin"].includes(loggedInMember.role)) {
       return res.status(403).json({
         success: false,
         message: "You do not have permission to invite members",
       });
     }
+
+    const invitedUser = await User.findOne({
+      email: email.toLowerCase(),
+    });
+
+    if (
+      invitedUser &&
+      team.members.some(
+        (member) => member.user.toString() === invitedUser._id.toString(),
+      )
+    ) {
+      return res.status(409).json({
+        success: false,
+        message: "User is already a member of this team",
+      });
+    }
+
+    const token = generateInvitationToken();
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    await TeamInvitation.create({
+      team: team._id,
+      email: email.toLowerCase(),
+      role,
+      invitedBy: loggedInUserId,
+      token,
+      expiresAt,
+    });
 
     const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
     const joinLink = `${frontendUrl}/join?code=${team.joinCode}`;
@@ -398,20 +426,76 @@ Or log in and enter the code manually.`,
       `,
     });
 
+    if (invitedUser) {
+      await Notification.create({
+        user: invitedUser._id,
+        type: "team_invitation",
+        title: "Team invitation",
+        message: `You were invited to join "${team.name}" as ${role}`,
+        relatedTeam: team._id,
+      });
+    }
+
     return res.status(200).json({
       success: true,
       message: "Invitation email sent successfully",
       email,
       role,
       invitedBy: loggedInUserId,
-      tokenHash,
-      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      expiresAt,
     });
   } catch (error) {
-    console.error("Invite by email error:", error);
+    console.error("Create team invitation error:", error);
 
-    // 7. Build invitation link
-    const inviteUrl = `http://localhost:5000/api/invitations/${token}/accept`;
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+const getTeamInvitations = async (req, res) => {
+  try {
+    const { teamId } = req.params;
+    const userId = req.user._id;
+
+    const team = await Team.findById(teamId);
+
+    if (!team) {
+      return res.status(404).json({
+        success: false,
+        message: "Team not found",
+      });
+    }
+
+    const member = team.members.find(
+      (item) => item.user.toString() === userId.toString(),
+    );
+
+    if (!member || !["owner", "admin"].includes(member.role)) {
+      return res.status(403).json({
+        success: false,
+        message: "You do not have permission to view invitations",
+      });
+    }
+
+    const invitations = await TeamInvitation.find({ team: teamId })
+      .sort({ createdAt: -1 })
+      .populate("invitedBy", "name email");
+
+    return res.status(200).json({
+      success: true,
+      invitations,
+    });
+  } catch (error) {
+    console.error("Get team invitations error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
 
 const getJoinCode = async (req, res) => {
   try {
@@ -434,24 +518,7 @@ const getJoinCode = async (req, res) => {
       });
     }
 
-    const invitedUser = await User.findOne({
-      email: email.toLowerCase(),
-    });
-
-    if (
-      invitedUser &&
-      invitedUser._id.toString() !== loggedInUserId.toString()
-    ) {
-      await Notification.create({
-        user: invitedUser._id,
-        type: "team_invitation",
-        title: "Team invitation",
-        message: `You were invited to join "${team.name}" as ${role}`,
-        relatedTeam: team._id,
-      });
-    }
-
-    return res.status(201).json({
+    return res.status(200).json({
       success: true,
       joinCode: team.joinCode,
     });
@@ -479,28 +546,59 @@ const regenerateJoinCode = async (req, res) => {
       });
     }
 
-    // Check if logged-in user belongs to the team
     const currentMember = team.members.find(
-      (member) => member.user.toString() === req.user._id.toString(),
+      (member) => member.user.toString() === userId.toString(),
     );
 
-    if (!currentMember) {
+    if (!currentMember || !["owner", "admin"].includes(currentMember.role)) {
       return res.status(403).json({
         success: false,
-        message: "Only the team owner can regenerate the join code",
+        message: "Only the team owner or admin can regenerate the join code",
       });
     }
 
-    // Only owner/admin can view invitations
-    if (currentMember.role !== "owner" && currentMember.role !== "admin") {
-      return res.status(403).json({
+    team.joinCode = generateJoinCode();
+    await team.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Join code regenerated successfully",
+      joinCode: team.joinCode,
+    });
+  } catch (error) {
+    console.error("Regenerate join code error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+const joinTeamByCode = async (req, res) => {
+  try {
+    const { teamId } = req.params;
+    const { joinCode } = req.body;
+    const userId = req.user._id;
+
+    const team = await Team.findById(teamId);
+
+    if (!team) {
+      return res.status(404).json({
+        success: false,
+        message: "Team not found",
+      });
+    }
+
+    if (team.joinCode !== joinCode) {
+      return res.status(400).json({
         success: false,
         message: "Invalid join code",
       });
     }
 
     const alreadyMember = team.members.some(
-      (member) => member.user.toString() === userId.toString()
+      (member) => member.user.toString() === userId.toString(),
     );
 
     if (alreadyMember) {
@@ -543,6 +641,9 @@ module.exports = {
   deleteTeam,
   getTeamMembers,
   updateMemberRole,
-  createTeamInvitation,
+  inviteByEmail,
   getTeamInvitations,
+  getJoinCode,
+  regenerateJoinCode,
+  joinTeamByCode,
 };

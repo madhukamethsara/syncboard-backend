@@ -1,3 +1,6 @@
+const dns = require("dns");
+dns.setServers(["8.8.8.8", "8.8.4.4"]);
+
 const dotenv = require("dotenv");
 
 dotenv.config();
@@ -19,7 +22,7 @@ const notificationRoutes = require("./src/routes/notificationRoutes");
 const app = express();
 
 const PORT = process.env.PORT || 5000;
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
+const CLIENT_URL = process.env.CLIENT_URL || process.env.FRONTEND_URL || "http://localhost:5173";
 
 
 // MIDDLEWARE
@@ -27,9 +30,7 @@ app.use(express.json());
 
 app.use(
   cors({
-
-    origin: FRONTEND_URL,
-    origin: process.env.CLIENT_URL || "http://localhost:5173",
+    origin: CLIENT_URL,
     credentials: true,
   })
 );
@@ -60,9 +61,20 @@ app.get("/api/health", (req, res) => {
 // CONNECT DB & START SERVER
 connectDB()
   .then(() => {
-    app.listen(PORT, () => {
+    const server = app.listen(PORT, () => {
       console.log(`Server running on http://localhost:${PORT}`);
     });
+
+    const shutdown = (signal) => {
+      console.log(`${signal} received. Shutting down gracefully...`);
+      server.close(() => {
+        console.log("Server closed.");
+        process.exit(0);
+      });
+    };
+
+    process.on("SIGTERM", () => shutdown("SIGTERM"));
+    process.on("SIGINT", () => shutdown("SIGINT"));
   })
   .catch((error) => {
     console.error("Failed to start server:", error.message);

@@ -21,6 +21,8 @@ services:
         sync: false
       - key: EMAIL_APP_PASSWORD
         sync: false
+      - key: CLIENT_URL
+        value: https://syncboard-rho.vercel.app
       - key: FRONTEND_URL
         value: https://syncboard-rho.vercel.app
       - key: BASE_URL
