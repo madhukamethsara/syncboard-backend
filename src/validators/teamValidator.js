@@ -26,6 +26,7 @@ const inviteByEmailSchema = z.object({
     .trim()
     .email("Please enter a valid email address")
     .transform((email) => email.toLowerCase()),
+  role: z.enum(["admin", "member"]).default("member"),
 });
 
 const joinTeamByCodeSchema = z.object({
