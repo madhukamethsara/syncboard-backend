@@ -55,7 +55,27 @@ const register = async (req, res) => {
       }),
     });
 
-    if (verificationRequired) await sendVerificationEmail(user.email, token);
+    if (verificationRequired) {
+      try {
+        await sendVerificationEmail(user.email, token);
+      } catch (emailError) {
+        console.error("Verification email failed during registration:", emailError.message);
+        return res.status(201).json({
+          success: true,
+          message:
+            "User registered successfully, but we couldn't send the verification email. Please use the resend verification endpoint to try again.",
+          user: {
+            id: user._id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            avatar: user.avatar,
+            isEmailVerified: user.isEmailVerified,
+            createdAt: user.createdAt,
+          },
+        });
+      }
+    }
 
     return res.status(201).json({
       success: true,
@@ -132,6 +152,62 @@ const verifyEmail = async (req, res) => {
 };
 
 
+//resend verification email
+const resendVerification = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "Email is required",
+      });
+    }
+
+    const user = await User.findOne({ email: email.toLowerCase() });
+
+    if (!user) {
+      return res.status(200).json({
+        success: true,
+        message: "If that email is registered, a verification link has been sent.",
+      });
+    }
+
+    if (user.isEmailVerified) {
+      return res.status(200).json({
+        success: true,
+        message: "This email is already verified. You can log in.",
+      });
+    }
+
+    const { token, hashedToken } = generateVerificationToken();
+    user.emailVerificationToken = hashedToken;
+    user.emailVerificationExpires = new Date(Date.now() + 60 * 60 * 1000);
+    await user.save();
+
+    try {
+      await sendVerificationEmail(user.email, token);
+      return res.status(200).json({
+        success: true,
+        message: "Verification email sent. Please check your inbox.",
+      });
+    } catch (emailError) {
+      console.error("Resend verification email failed:", emailError.message);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to send verification email. Please try again later.",
+      });
+    }
+  } catch (error) {
+    console.error("Resend verification error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+
 //login function
 const login = async (req, res) => {
   try {
@@ -178,7 +254,17 @@ const login = async (req, res) => {
       user.emailVerificationToken = hashedToken;
       user.emailVerificationExpires = new Date(Date.now() + 60 * 60 * 1000);
       await user.save();
-      await sendVerificationEmail(user.email, verificationToken);
+
+      try {
+        await sendVerificationEmail(user.email, verificationToken);
+      } catch (emailError) {
+        console.error("Verification email failed during login:", emailError.message);
+        return res.status(403).json({
+          success: false,
+          message:
+            "Please verify your email. We couldn't send a new verification email. Please try again later or contact support.",
+        });
+      }
 
       return res.status(403).json({
         success: false,
@@ -259,4 +345,5 @@ module.exports = {
   getMe,
   logout,
   verifyEmail,
+  resendVerification,
 };
