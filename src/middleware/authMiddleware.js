@@ -27,6 +27,16 @@ const authenticate = async (req, res, next) => {
       });
     }
 
+    if (
+      process.env.EMAIL_VERIFICATION_REQUIRED === "true" &&
+      !user.isEmailVerified
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "Email not verified. Please verify your email to continue.",
+      });
+    }
+
     req.user = user;
 
     next();
