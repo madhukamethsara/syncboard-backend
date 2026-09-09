@@ -1,18 +1,11 @@
-const nodemailer = require("nodemailer");
+const { Resend } = require("resend");
 
-if (!process.env.EMAIL_USER || !process.env.EMAIL_APP_PASSWORD) {
+if (!process.env.RESEND_API_KEY) {
   console.warn(
-    "Email is not configured: set EMAIL_USER and EMAIL_APP_PASSWORD in .env"
+    "Email is not configured: set RESEND_API_KEY in .env. Emails will fail to send."
   );
 }
 
-const transporter = nodemailer.createTransport({
-  service: "gmail",
+const resend = new Resend(process.env.RESEND_API_KEY);
 
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_APP_PASSWORD,
-  },
-});
-
-module.exports = transporter;
+module.exports = resend;
