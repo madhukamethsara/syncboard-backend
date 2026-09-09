@@ -9,7 +9,7 @@ SyncBoard is a collaborative task-planning application. This backend provides se
 - JWT authentication with HTTP-only cookies
 - Argon2 password hashing
 - Zod request validation
-- Nodemailer for optional email verification and team invitations
+- Resend for optional email verification and team invitations
 
 ## Prerequisites
 
@@ -35,8 +35,8 @@ CLIENT_URL=http://localhost:5173
 NODE_ENV=development
 
 EMAIL_VERIFICATION_REQUIRED=false
-EMAIL_USER=
-EMAIL_APP_PASSWORD=
+RESEND_API_KEY=
+EMAIL_FROM=onboarding@resend.dev
 ```
 
 Start the development server:

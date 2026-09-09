@@ -13,7 +13,7 @@ const User = require("../models/User");
 const Notification = require("../models/Notification");
 const generateJoinCode = require("../utils/joinCode");
 const generateInvitationToken = require("../utils/invitationToken");
-const transporter = require("../utils/mailer");
+const resend = require("../utils/mailer");
 
 const createTeam = async (req, res) => {
   try {
@@ -405,8 +405,10 @@ const inviteByEmail = async (req, res) => {
     const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
     const joinLink = `${frontendUrl}/join?code=${team.joinCode}`;
 
-    await transporter.sendMail({
-      from: `"SyncBoard" <${process.env.EMAIL_USER}>`,
+    const fromAddress = process.env.EMAIL_FROM || "onboarding@resend.dev";
+
+    const { error } = await resend.emails.send({
+      from: `SyncBoard <${fromAddress}>`,
       to: email,
       subject: `You're invited to join ${team.name} on SyncBoard`,
       text: `You've been invited to join ${team.name} on SyncBoard.
@@ -425,6 +427,10 @@ Or log in and enter the code manually.`,
         <p>Or log in and enter the code manually.</p>
       `,
     });
+
+    if (error) {
+      throw new Error(error.message);
+    }
 
     if (invitedUser) {
       await Notification.create({

@@ -109,11 +109,15 @@ const verifyEmail = async (req, res) => {
     // Get raw token from URL
     const { token } = req.params;
 
+    console.log(`Email verification attempt with token: ${token.substring(0, 10)}...`);
+
     // Hash the raw token
     const hashedToken = crypto
       .createHash("sha256")
       .update(token)
       .digest("hex");
+
+    console.log(`Hashed token: ${hashedToken.substring(0, 10)}...`);
 
     // Find user with matching token that has not expired
     const user = await User.findOne({
@@ -122,11 +126,14 @@ const verifyEmail = async (req, res) => {
     });
 
     if (!user) {
+      console.log(`No user found with token or token expired`);
       return res.status(400).json({
         success: false,
         message: "Verification link is invalid or has expired",
       });
     }
+
+    console.log(`User found: ${user.email}, verifying email`);
 
     // Mark email as verified
     user.isEmailVerified = true;
