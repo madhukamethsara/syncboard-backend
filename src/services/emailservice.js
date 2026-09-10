@@ -6,14 +6,14 @@ const RETRY_DELAY_MS = 2000;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const sendVerificationEmail = async (email, token) => {
-  const baseUrl = process.env.BASE_URL || "http://localhost:5000";
-  const verificationUrl = `${baseUrl}/api/auth/verify-email/${token}`;
+  const frontendUrl = process.env.CLIENT_URL || process.env.FRONTEND_URL || "http://localhost:5173";
+  const verificationUrl = `${frontendUrl}/verify-email/${token}`;
 
   const fromAddress = process.env.EMAIL_FROM || "onboarding@resend.dev";
 
   console.log(`Sending verification email to ${email}`);
   console.log(`Verification URL: ${verificationUrl}`);
-  console.log(`Using BASE_URL: ${baseUrl}`);
+  console.log(`Using FRONTEND_URL: ${frontendUrl}`);
 
   let lastError;
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
