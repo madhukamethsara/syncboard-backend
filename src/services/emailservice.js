@@ -7,7 +7,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const sendVerificationEmail = async (email, token) => {
   const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
-  const verificationUrl = `${frontendUrl}/verify-email/${token}`;
+  const verificationUrl = `${frontendUrl}/verify-email/${token}?email=${encodeURIComponent(email)}`;
 
   const fromAddress = process.env.EMAIL_FROM || "onboarding@resend.dev";
 

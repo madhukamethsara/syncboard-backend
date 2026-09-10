@@ -127,6 +127,16 @@ const verifyEmail = async (req, res) => {
 
     if (!user) {
       console.log(`No user found with token or token expired`);
+      const email = req.query.email;
+      if (email) {
+        const existingUser = await User.findOne({ email: email.toLowerCase() });
+        if (existingUser && existingUser.isEmailVerified) {
+          return res.status(200).json({
+            success: true,
+            message: "Email is already verified. You can log in.",
+          });
+        }
+      }
       return res.status(400).json({
         success: false,
         message: "Verification link is invalid or has expired",

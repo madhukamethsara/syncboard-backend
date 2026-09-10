@@ -32,4 +32,4 @@ services:
       - key: FRONTEND_URL
         value: https://syncboard-rho.vercel.app
       - key: BASE_URL
-        value: https://syncboard-backend.onrender.com
+        value: https://syncboard-backend-92ft.onrender.com
