@@ -2,6 +2,7 @@ const argon2 = require("argon2");
 const User = require("../models/User");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
+const getAuthCookieOptions = require("../utils/authCookie");
 const { registerSchema , loginSchema } = require("../validators/authValidator");
 const generateVerificationToken = require("../utils/verificationToken")
 const { sendVerificationEmail } = require("../services/emailservice");
@@ -303,10 +304,8 @@ const login = async (req, res) => {
 
     //Store JWT in HttpOnly cookie
     res.cookie("token", token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "none",
-      maxAge: 24 * 60 * 60 * 1000,
+      ...getAuthCookieOptions(),
+      maxAge: Math.max(0, jwt.decode(token).exp * 1000 - Date.now()),
     });
 
     //Return safe user data
@@ -344,11 +343,7 @@ const getMe = async (req, res) => {
 
 //logout function
 const logout = async (req, res) => {
-  res.clearCookie("token", {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "none",
-  });
+  res.clearCookie("token", getAuthCookieOptions());
 
   return res.status(200).json({
     success: true,
