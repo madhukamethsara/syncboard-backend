@@ -1,5 +1,4 @@
 const Team = require("../models/Team");
-const TeamInvitation = require("../models/TeamInvitation");
 const Board = require("../models/Board");
 const Column = require("../models/Column");
 const Task = require("../models/Task");
@@ -17,7 +16,6 @@ const resend = require("../utils/mailer");
 
 const createTeam = async (req, res) => {
   try {
-    // Validate request body
     const result = createTeamSchema.safeParse(req.body);
 
     if (!result.success) {
@@ -29,8 +27,6 @@ const createTeam = async (req, res) => {
     }
 
     const { name } = result.data;
-
-    // Logged-in user becomes the owner
     const ownerId = req.user._id;
 
     const team = await Team.create({
@@ -100,7 +96,6 @@ const getTeamById = async (req, res) => {
       });
     }
 
-    // Check whether logged-in user belongs to this team
     const isMember = team.members.some(
       (member) => member.user._id.toString() === userId.toString(),
     );
@@ -181,7 +176,6 @@ const deleteTeam = async (req, res) => {
     const { teamId } = req.params;
     const userId = req.user._id;
 
-    // Find team
     const team = await Team.findById(teamId);
 
     if (!team) {
@@ -191,7 +185,6 @@ const deleteTeam = async (req, res) => {
       });
     }
 
-    // Only the owner can delete the team
     if (team.owner.toString() !== userId.toString()) {
       return res.status(403).json({
         success: false,
@@ -205,7 +198,7 @@ const deleteTeam = async (req, res) => {
       Task.deleteMany({ board: { $in: boardIds } }),
       Column.deleteMany({ board: { $in: boardIds } }),
       Board.deleteMany({ team: teamId }),
-      TeamInvitation.deleteMany({ team: teamId }),
+      Notification.deleteMany({ relatedTeam: teamId }),
       Team.findByIdAndDelete(teamId),
     ]);
 
@@ -291,7 +284,6 @@ const updateMemberRole = async (req, res) => {
       });
     }
 
-    // Only owner can change member roles
     if (team.owner.toString() !== loggedInUserId.toString()) {
       return res.status(403).json({
         success: false,
@@ -310,7 +302,6 @@ const updateMemberRole = async (req, res) => {
       });
     }
 
-    // Owner role cannot be changed here
     if (member.role === "owner") {
       return res.status(400).json({
         success: false,
