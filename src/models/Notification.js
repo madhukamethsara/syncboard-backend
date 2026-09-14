@@ -13,11 +13,10 @@ const notificationSchema = new mongoose.Schema(
       required: true,
       enum: [
         "team_invitation",
-        "team_joined",
-        "board_created",
+        "board_shared",
         "task_assigned",
-        "task_updated",
-        "mention",
+        "task_comment",
+        "task_mention",
       ],
     },
 

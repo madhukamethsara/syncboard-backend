@@ -21,9 +21,15 @@ services:
         sync: false
       - key: EMAIL_APP_PASSWORD
         sync: false
+      - key: RESEND_API_KEY
+        sync: true
+      - key: EMAIL_FROM
+        value: onboarding@resend.dev
+      - key: EMAIL_VERIFICATION_REQUIRED
+        value: "true"
+      - key: CLIENT_URL
+        value: https://syncboard-rho.vercel.app
       - key: FRONTEND_URL
         value: https://syncboard-rho.vercel.app
       - key: BASE_URL
-        fromService:
-          name: syncboard-backend
-          property: url
+        value: https://syncboard-backend-92ft.onrender.com

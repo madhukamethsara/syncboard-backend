@@ -2,6 +2,7 @@ const argon2 = require("argon2");
 const User = require("../models/User");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
+const getAuthCookieOptions = require("../utils/authCookie");
 const { registerSchema , loginSchema } = require("../validators/authValidator");
 const generateVerificationToken = require("../utils/verificationToken")
 const { sendVerificationEmail } = require("../services/emailservice");
@@ -55,7 +56,27 @@ const register = async (req, res) => {
       }),
     });
 
-    if (verificationRequired) await sendVerificationEmail(user.email, token);
+    if (verificationRequired) {
+      try {
+        await sendVerificationEmail(user.email, token);
+      } catch (emailError) {
+        console.error("Verification email failed during registration:", emailError.message);
+        return res.status(201).json({
+          success: true,
+          message:
+            "User registered successfully, but we couldn't send the verification email. Please use the resend verification endpoint to try again.",
+          user: {
+            id: user._id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            avatar: user.avatar,
+            isEmailVerified: user.isEmailVerified,
+            createdAt: user.createdAt,
+          },
+        });
+      }
+    }
 
     return res.status(201).json({
       success: true,
@@ -89,11 +110,15 @@ const verifyEmail = async (req, res) => {
     // Get raw token from URL
     const { token } = req.params;
 
+    console.log(`Email verification attempt with token: ${token.substring(0, 10)}...`);
+
     // Hash the raw token
     const hashedToken = crypto
       .createHash("sha256")
       .update(token)
       .digest("hex");
+
+    console.log(`Hashed token: ${hashedToken.substring(0, 10)}...`);
 
     // Find user with matching token that has not expired
     const user = await User.findOne({
@@ -102,11 +127,24 @@ const verifyEmail = async (req, res) => {
     });
 
     if (!user) {
+      console.log(`No user found with token or token expired`);
+      const email = req.query.email;
+      if (email) {
+        const existingUser = await User.findOne({ email: email.toLowerCase() });
+        if (existingUser && existingUser.isEmailVerified) {
+          return res.status(200).json({
+            success: true,
+            message: "Email is already verified. You can log in.",
+          });
+        }
+      }
       return res.status(400).json({
         success: false,
         message: "Verification link is invalid or has expired",
       });
     }
+
+    console.log(`User found: ${user.email}, verifying email`);
 
     // Mark email as verified
     user.isEmailVerified = true;
@@ -124,6 +162,62 @@ const verifyEmail = async (req, res) => {
   } catch (error) {
     console.error("Email verification error:", error);
 
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+
+//resend verification email
+const resendVerification = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "Email is required",
+      });
+    }
+
+    const user = await User.findOne({ email: email.toLowerCase() });
+
+    if (!user) {
+      return res.status(200).json({
+        success: true,
+        message: "If that email is registered, a verification link has been sent.",
+      });
+    }
+
+    if (user.isEmailVerified) {
+      return res.status(200).json({
+        success: true,
+        message: "This email is already verified. You can log in.",
+      });
+    }
+
+    const { token, hashedToken } = generateVerificationToken();
+    user.emailVerificationToken = hashedToken;
+    user.emailVerificationExpires = new Date(Date.now() + 60 * 60 * 1000);
+    await user.save();
+
+    try {
+      await sendVerificationEmail(user.email, token);
+      return res.status(200).json({
+        success: true,
+        message: "Verification email sent. Please check your inbox.",
+      });
+    } catch (emailError) {
+      console.error("Resend verification email failed:", emailError.message);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to send verification email. Please try again later.",
+      });
+    }
+  } catch (error) {
+    console.error("Resend verification error:", error);
     return res.status(500).json({
       success: false,
       message: "Internal server error",
@@ -178,7 +272,17 @@ const login = async (req, res) => {
       user.emailVerificationToken = hashedToken;
       user.emailVerificationExpires = new Date(Date.now() + 60 * 60 * 1000);
       await user.save();
-      await sendVerificationEmail(user.email, verificationToken);
+
+      try {
+        await sendVerificationEmail(user.email, verificationToken);
+      } catch (emailError) {
+        console.error("Verification email failed during login:", emailError.message);
+        return res.status(403).json({
+          success: false,
+          message:
+            "Please verify your email. We couldn't send a new verification email. Please try again later or contact support.",
+        });
+      }
 
       return res.status(403).json({
         success: false,
@@ -200,10 +304,8 @@ const login = async (req, res) => {
 
     //Store JWT in HttpOnly cookie
     res.cookie("token", token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      maxAge: 24 * 60 * 60 * 1000,
+      ...getAuthCookieOptions(),
+      maxAge: Math.max(0, jwt.decode(token).exp * 1000 - Date.now()),
     });
 
     //Return safe user data
@@ -216,6 +318,7 @@ const login = async (req, res) => {
         email: user.email,
         role: user.role,
         avatar: user.avatar,
+        isEmailVerified: user.isEmailVerified,
       },
     });
   } catch (error) {
@@ -240,11 +343,7 @@ const getMe = async (req, res) => {
 
 //logout function
 const logout = async (req, res) => {
-  res.clearCookie("token", {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-  });
+  res.clearCookie("token", getAuthCookieOptions());
 
   return res.status(200).json({
     success: true,
@@ -259,4 +358,5 @@ module.exports = {
   getMe,
   logout,
   verifyEmail,
+  resendVerification,
 };
